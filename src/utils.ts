@@ -142,7 +142,6 @@ export const devtools = <T extends object>(proxyObject: T, name?: string) => {
  *   }, // with optional setter
  * })
  */
-
 export const proxyWithComputed = <T extends object, U extends object>(
   initialObject: T,
   computedFns: {
@@ -194,4 +193,60 @@ export const proxyWithComputed = <T extends object, U extends object>(
   })
   const p = proxy(initialObject) as T & U
   return p
+}
+
+/**
+ * addComputed
+ *
+ * This is to add a computed value to a proxy object.
+ *
+ * @example
+ * import { proxy } from 'valtio'
+ * import { addComputed } from 'valtio/utils'
+ * const state = proxy({
+ *   count: 1,
+ * })
+ * addComputed(
+ *   state,
+ *   'dobuled',
+ *   snap => snap.count * 2, // getter only
+ * )
+ * addComputed(state,
+ *   'tripled',
+ *   snap => snap.count * 3, // get
+ *   (state, newValue) => { state.count = newValue / 3 }, // set
+ * )
+ */
+export const addComputed = <T extends object, K extends string, U>(
+  proxyObject: T,
+  key: K,
+  get: (snap: NonPromise<T>) => U,
+  set?: (state: T, newValue: U) => void
+) => {
+  const NOTIFIER = Symbol()
+  ;(proxyObject as any)[NOTIFIER] = 0
+  let computedValue: U
+  let prevSnapshot: NonPromise<T> | undefined
+  let affected = new WeakMap()
+  const desc: PropertyDescriptor = {}
+  desc.get = () => {
+    const nextSnapshot = snapshot(proxyObject)
+    if (!prevSnapshot || isDeepChanged(prevSnapshot, nextSnapshot, affected)) {
+      affected = new WeakMap()
+      computedValue = get(createDeepProxy(nextSnapshot, affected))
+      if (computedValue instanceof Promise) {
+        computedValue.then((v) => {
+          computedValue = v
+          ++(proxyObject as any)[NOTIFIER] // HACK notify update
+        })
+        // XXX no error handling
+      }
+      prevSnapshot = nextSnapshot
+    }
+    return computedValue
+  }
+  if (set) {
+    desc.set = (newValue) => set(proxyObject, newValue)
+  }
+  Object.defineProperty(proxyObject, key, desc)
 }
