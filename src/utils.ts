@@ -142,7 +142,6 @@ export const devtools = <T extends object>(proxyObject: T, name?: string) => {
  *   }, // with optional setter
  * })
  */
-
 export const proxyWithComputed = <T extends object, U extends object>(
   initialObject: T,
   computedFns: {
@@ -194,4 +193,46 @@ export const proxyWithComputed = <T extends object, U extends object>(
   })
   const p = proxy(initialObject) as T & U
   return p
+}
+
+/**
+ * addComputed
+ *
+ * This is to add a computed value to a proxy object.
+ *
+ * @example
+ * import { addComputed } from 'valtio/utils'
+ * const state = proxyWithComputed({
+ *   count: 1,
+ * })
+ * addComputed(
+ *   'doubled',
+ *   snap => snap.count * 2,
+ * )
+ */
+export const addComputed = <T extends object, K extends string, U>(
+  proxyObject: T,
+  key: K,
+  get: (snap: NonPromise<T>) => U
+) => {
+  let computedValue: U
+  let prevSnapshot: NonPromise<T> | undefined
+  let affected = new WeakMap()
+  subscribe(proxyObject, () => {
+    const nextSnapshot = snapshot(proxyObject)
+    if (!prevSnapshot || isDeepChanged(prevSnapshot, nextSnapshot, affected)) {
+      affected = new WeakMap()
+      computedValue = get(createDeepProxy(nextSnapshot, affected))
+      if (computedValue instanceof Promise) {
+        computedValue.then((v) => {
+          computedValue = v
+          ;(proxyObject as any)[key] = computedValue
+        })
+        // XXX no error handling
+      }
+      prevSnapshot = nextSnapshot
+      ;(proxyObject as any)[key] = computedValue
+    }
+  })
+  return proxyObject as T & Record<K, U>
 }
